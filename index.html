@@ -71,7 +71,7 @@
                 </span>
                 <span class="text-[10px] font-mono font-bold text-emerald-400">ONLINE</span>
             </div>
-            <div class="text-xs font-mono text-slate-500">v2.1</div>
+            <div class="text-xs font-mono text-slate-500">v2.2</div>
         </div>
     </header>
 
@@ -110,17 +110,20 @@
         import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- GEMINI API SETUP ---
-        const apiKey = ""; // Biarkan kosong jika di environment ini. Isi manual jika di GitHub.
+        // Jika kamu ingin AI-nya pintar di GitHub/Hosting sendiri, kamu WAJIB memasukkan API Key Gemini di sini.
+        // Jika dibiarkan kosong, AI akan fallback ke mode offline jika env config tidak ditemukan.
+        const apiKey = ""; 
 
         async function callGeminiAI(userMessage, conversationHistory = []) {
             // Check if API Key is missing for GitHub deployment
             if (!apiKey && typeof __firebase_config === 'undefined') {
+                 // Fallback response telling user to add key for intelligence
                  return {
                     type: "quests",
                     quests: [
-                        { diff: 'Easy', title: 'API Key Missing', desc: 'Tambahkan Google Gemini API Key di dalam kode untuk mengaktifkan AI.', rewards: { discipline: 1 } },
-                        { diff: 'Normal', title: 'Setup Config', desc: 'Konfigurasi Firebase dan API Key diperlukan untuk fitur online.', rewards: { intellect: 5 } },
-                        { diff: 'Hard', title: 'Developer Mode', desc: 'Buka source code dan edit variabel konfigurasi.', rewards: { potential: 10 } }
+                        { diff: 'Easy', title: 'AI Offline', desc: 'Tambahkan Google Gemini API Key di kode agar AI menjadi pintar.', rewards: { discipline: 1 } },
+                        { diff: 'Normal', title: 'Mode Manual', desc: 'Karena API Key kosong, saya hanya merespons default.', rewards: { intellect: 1 } },
+                        { diff: 'Hard', title: 'Config Setup', desc: 'Edit file HTML dan isi variabel "apiKey" di baris 110.', rewards: { potential: 5 } }
                     ]
                 };
             }
@@ -233,10 +236,7 @@
         let appId = 'lifequest-default';
 
         // === KONFIGURASI FIREBASE ===
-        // Logic ini menangani dua kondisi:
-        // 1. Preview Environment (Otomatis)
-        // 2. GitHub/Hosting Sendiri (Manual - ANDA HARUS ISI BAGIAN CATCH)
-        
+        // 1. Coba baca config dari environment (untuk preview di sini)
         try {
             if (typeof __firebase_config !== 'undefined') {
                 firebaseConfig = JSON.parse(__firebase_config);
@@ -245,39 +245,17 @@
                 throw new Error('Running externally');
             }
         } catch (e) {
-            // ⚠️ PENTING UNTUK GITHUB / HOSTING:
-            // Isi data di bawah ini dengan config dari Firebase Console Anda.
-            // Buka Firebase Console -> Project Settings -> General -> Your Apps
+            // 2. JIKA ERROR (artinya berjalan di GitHub/Hosting), gunakan config manual ini:
+            // SAYA SUDAH MEMASUKKAN CONFIG MILIKMU DI SINI:
             firebaseConfig = {
                 apiKey: "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs",
                 authDomain: "gabriel1-1c7a6.firebaseapp.com",
                 projectId: "gabriel1-1c7a6",
                 storageBucket: "gabriel1-1c7a6.firebasestorage.app",
                 messagingSenderId: "56792096758",
-                appId: "1:56792096758:web:a16df7e3043a02025bb1d7"
+                appId: "1:56792096758:web:a16df7e3043a02025bb1d7",
+                measurementId: "G-217YX90F4Q"
             };
-        }
-
-        // Cek jika config masih default (belum diisi user untuk external hosting)
-        if (typeof __firebase_config === 'undefined' && firebaseConfig.apiKey === "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs") {
-            const warningDiv = document.createElement('div');
-            warningDiv.innerHTML = `
-                <div style="position:fixed; inset:0; background:#020617; color:white; display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:9999; text-align:center; padding:20px;">
-                    <i data-lucide="alert-triangle" style="color:#ef4444; width:48px; height:48px; margin-bottom:16px;"></i>
-                    <h1 style="font-size:24px; font-weight:bold; margin-bottom:12px;">Konfigurasi Diperlukan</h1>
-                    <p style="color:#94a3b8; max-width:400px; line-height:1.5;">
-                        Aplikasi ini berjalan di luar environment preview. Untuk membuatnya bekerja di GitHub/Hosting:
-                    </p>
-                    <ol style="text-align:left; color:#cbd5e1; margin-top:20px; font-family:monospace; font-size:14px; background:#1e293b; padding:20px; rounded:8px;">
-                        <li>1. Buka file index.html ini di text editor.</li>
-                        <li>2. Cari bagian "KONFIGURASI FIREBASE".</li>
-                        <li>3. Ganti "ISI_API_KEY_ANDA_DISINI" dengan config Firebase Anda.</li>
-                    </ol>
-                </div>
-            `;
-            document.body.appendChild(warningDiv);
-            lucide.createIcons();
-            throw new Error("Firebase Config Missing");
         }
 
         const app = initializeApp(firebaseConfig);
