@@ -130,57 +130,68 @@
         };
 
         // --- GEMINI API SETUP ---
-        // PENTING: Di environment preview ini, biarkan string ini KOSONG ("").
-        // Sistem akan otomatis menyuntikkan kunci yang valid.
-        // Jika di GitHub/Hosting sendiri, isi dengan GEMINI API KEY dari https://aistudio.google.com/
+        // Jika berjalan di Preview Canvas ini: BIARKAN KOSONG (""). Sistem akan otomatis inject key.
+        // Jika di GitHub/Hosting sendiri: Isi dengan API Key dari https://aistudio.google.com/
         const apiKey = ""; 
 
         async function callGeminiAI(userMessage, conversationHistory = []) {
-            // Cek apakah kita di preview (apiKey kosong) atau di hosting sendiri
-            // Jika di hosting sendiri tapi apiKey kosong, beri pesan error.
+            // Check fallback for external hosting without key
             if (!apiKey && typeof __firebase_config === 'undefined') {
                  return {
-                    type: "quests",
-                    quests: [
-                        { diff: 'Easy', title: 'API Missing', desc: 'Isi variable "apiKey" di kode dengan Gemini API Key.', rewards: { discipline: 1 } },
-                        { diff: 'Normal', title: 'Manual Mode', desc: 'Sistem berjalan offline.', rewards: { discipline: 3 } },
-                        { diff: 'Hard', title: 'Configuration', desc: 'Dapatkan key dari Google AI Studio.', rewards: { resilience: 4 } }
-                    ]
+                    type: "chat",
+                    text: "⚠️ System Alert: API Key belum dikonfigurasi. Saya berjalan dalam mode offline terbatas. Silakan tambahkan Google Gemini API Key di dalam kode untuk mengaktifkan kecerdasan penuh saya.",
                 };
             }
 
             const historyText = conversationHistory
-                .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
+                .map(msg => `${msg.role === 'user' ? 'Player' : 'Oracle'}: ${msg.text}`)
                 .join('\n');
 
+            // PERSONA & INSTRUKSI AI YANG LEBIH CERDAS
             const systemPrompt = `
-            Anda adalah 'LifeQuest Oracle', Game Master AI futuristik.
-            Tugas: Mengubah aktivitas user menjadi Quest RPG yang menarik.
+            Identity: Kamu adalah 'LifeQuest Oracle', AI pendamping perkembangan diri dengan gaya bahasa RPG/Sci-Fi yang seru, suportif, dan sedikit misterius.
             
-            ATURAN UTAMA:
-            1. PENTING: Jika input user pendek/kurang jelas (misal: "belajar", "olahraga", "kerja"), WAJIB output JSON tipe 'question' untuk menanya detail (misal: "Belajar apa spesifiknya?"). Jangan langsung kasih quest.
-            2. Jika input sudah SPESIFIK (misal: "belajar react", "lari pagi", "rapat proyek"), output JSON tipe 'quests' (3 opsi: Easy, Normal, Hard).
-            3. Gunakan Bahasa Indonesia yang gaul, seru, dan sedikit "chunibyo" (gaya game fantasy/sci-fi).
+            Mission: Analisis input Player (user).
             
-            FORMAT JSON (Wajib valid JSON):
-            {
-              "type": "question",
-              "text": "Pertanyaan klarifikasi kamu di sini..."
-            }
+            OUTPUT RULES (PENTING):
+            Kamu harus merespons dalam format JSON saja.
+            
+            SCENARIO 1: OBROLAN BIASA (Chatting/Curhat/Sapaan)
+            Jika input user BUKAN aktivitas spesifik (contoh: "Halo", "Siapa kamu?", "Saya sedih", "Motivasi dong"), gunakan tipe "chat".
+            - Responslah dengan ramah, berikan semangat, atau nasihat singkat ala mentor RPG.
+            
+            SCENARIO 2: AKTIVITAS KURANG JELAS (Ambigu)
+            Jika input user aktivitas tapi samar (contoh: "mau belajar", "olahraga", "kerja"), gunakan tipe "question".
+            - Tanya detailnya untuk menentukan tingkat kesulitan nanti.
+            
+            SCENARIO 3: AKTIVITAS SPESIFIK (Jelas)
+            Jika input user aktivitas jelas (contoh: "belajar matematika", "lari 5km", "bikin laporan"), gunakan tipe "quests".
+            - Buat 3 opsi quest (Easy, Normal, Hard).
+            
+            FORMAT JSON (Pilih satu yang sesuai):
+            
+            { "type": "chat", "text": "Halo Player! Siap menaklukkan hari ini?" }
+            
             ATAU
+            
+            { "type": "question", "text": "Belajar apa spesifiknya? (Coding, Bahasa, dll)" }
+            
+            ATAU
+            
             {
               "type": "quests",
               "quests": [
-                { "diff": "Easy", "title": "Judul Keren", "desc": "Instruksi aktivitas...", "rewards": { "intellect": 2 } }
+                { "diff": "Easy", "title": "Judul Quest", "desc": "Deskripsi...", "rewards": { "intellect": 2 } }
               ]
             }
             `;
 
-            const fullPrompt = `${systemPrompt}\n\nRiwayat:\n${historyText}\n\nUser: ${userMessage}\n\nOutput JSON:`;
+            const fullPrompt = `${systemPrompt}\n\n[Riwayat Percakapan]\n${historyText}\n\nPlayer Input Terbaru: ${userMessage}\n\nOutput JSON Only:`;
 
             try {
-                // Gunakan apiKey jika ada (hosting sendiri), atau biarkan kosong untuk injection di preview
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                // Use environment key if available, otherwise manual key
+                const finalKey = apiKey || ""; 
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${finalKey}`;
                 
                 const response = await fetch(url, {
                     method: 'POST',
@@ -192,7 +203,7 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`API Error: ${response.status}`);
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
                 }
                 
                 const data = await response.json();
@@ -201,14 +212,10 @@
 
             } catch (error) {
                 console.error("AI Error:", error);
-                // Fallback jika API gagal/offline
+                // Smart Fallback jika API Error
                 return {
-                    type: "quests",
-                    quests: [
-                        { diff: 'Easy', title: 'Backup Protocol', desc: 'Koneksi Neural terputus. Lakukan aktivitas ringan 5 menit.', rewards: { discipline: 1 } },
-                        { diff: 'Normal', title: 'System Override', desc: 'Lakukan aktivitas inti selama 25 menit (Pomodoro).', rewards: { focus: 5 } },
-                        { diff: 'Hard', title: 'Manual Mode', desc: 'Selesaikan target utama hari ini tanpa bantuan AI.', rewards: { resilience: 5 } }
-                    ]
+                    type: "chat",
+                    text: `⚠️ Koneksi Neural Terputus (Error: ${error.message}). Coba lagi atau cek koneksi internet.`
                 };
             }
         }
@@ -240,7 +247,7 @@
             stats: { ...INITIAL_STATS },
             activeQuests: [],
             history: [],
-            messages: [{ role: 'ai', text: 'System Online. Sebutkan aktivitasmu, Player.' }],
+            messages: [{ role: 'ai', text: 'System Online. Selamat datang, Player. Apa rencanamu hari ini?' }],
             proposedQuests: [],
             isTyping: false
         };
@@ -259,7 +266,7 @@
         } catch (e) {
             // MANUAL CONFIG FALLBACK (Dari user)
             firebaseConfig = {
-                apiKey: "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs",
+                apiKey: "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs", // Firebase API Key (Bukan Gemini API Key)
                 authDomain: "gabriel1-1c7a6.firebaseapp.com",
                 projectId: "gabriel1-1c7a6",
                 storageBucket: "gabriel1-1c7a6.firebasestorage.app",
@@ -430,7 +437,7 @@
                     <div class="h-4"></div> <!-- Spacer bawah -->
                 </div>
                 <form onsubmit="handleSendMessage(event)" class="mt-2 flex gap-2 pt-3 border-t border-slate-800/50 shrink-0 bg-slate-950 sticky bottom-0 z-10">
-                    <input id="chat-input" type="text" placeholder="Ketik aktivitas (misal: Belajar React)..." 
+                    <input id="chat-input" type="text" placeholder="Ketik aktivitas atau obrolan..." 
                         class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3.5 text-sm text-white focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 placeholder:text-slate-600 transition-all" 
                         ${state.proposedQuests.length > 0 ? 'disabled' : ''} autocomplete="off">
                     <button type="submit" ${state.proposedQuests.length > 0 ? 'disabled' : ''} 
@@ -522,6 +529,8 @@
                 } else if (aiResponse.type === 'quests') {
                     state.proposedQuests = aiResponse.quests;
                     state.messages.push({ role: 'ai', text: 'Analisis selesai. Pilih Quest:' });
+                } else if (aiResponse.type === 'chat') {
+                    state.messages.push({ role: 'ai', text: aiResponse.text || "Siap!" });
                 } else {
                     state.messages.push({ role: 'ai', text: 'Maaf, data tidak terbaca.' });
                 }
