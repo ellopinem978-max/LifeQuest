@@ -76,12 +76,13 @@
 
     <!-- MAIN CONTENT -->
     <main id="app-container" class="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-32 max-w-md mx-auto w-full relative">
-        <div id="loading-screen" class="flex flex-col items-center justify-center h-full space-y-4">
+        <div id="loading-screen" class="flex flex-col items-center justify-center h-full space-y-4 px-6 text-center">
             <div class="relative">
                 <div class="absolute inset-0 bg-emerald-500/20 blur-xl rounded-full"></div>
                 <i data-lucide="loader-2" class="relative w-12 h-12 text-emerald-500 animate-spin"></i>
             </div>
-            <p class="font-mono text-emerald-500 animate-pulse tracking-widest text-sm">CONNECTING...</p>
+            <p class="font-mono text-emerald-500 animate-pulse tracking-widest text-sm font-bold">CONNECTING TO DATABASE...</p>
+            <p class="text-xs text-slate-500 max-w-xs">Memeriksa autentikasi Firebase...</p>
         </div>
     </main>
 
@@ -114,40 +115,50 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- GLOBAL ERROR HANDLER ---
-        window.onerror = function(msg, url, line) {
+        // --- ERROR HANDLING ---
+        function showFatalError(title, message, tips = []) {
             const el = document.getElementById('loading-screen');
-            if(el) {
-                el.innerHTML = `
-                    <div class="text-red-400 text-center p-6 max-w-sm mx-auto mt-10">
-                        <i data-lucide="alert-octagon" class="w-12 h-12 mx-auto mb-4 text-red-500"></i>
-                        <h3 class="font-bold text-lg mb-2">System Error</h3>
-                        <p class="text-xs font-mono bg-slate-900 p-3 rounded text-left mb-4 break-words border border-red-900/50">${msg}</p>
+            if(!el) return;
+            const tipsHtml = tips.map(t => `<li>${t}</li>`).join('');
+            el.innerHTML = `
+                <div class="bg-slate-900 border border-red-500/50 rounded-2xl p-6 max-w-sm mx-auto shadow-2xl shadow-red-900/20">
+                    <div class="flex justify-center mb-4">
+                        <div class="bg-red-500/10 p-3 rounded-full">
+                            <i data-lucide="alert-triangle" class="w-10 h-10 text-red-500"></i>
+                        </div>
                     </div>
-                `;
-                lucide.createIcons();
-            }
-        };
+                    <h2 class="text-xl font-bold text-white mb-2">${title}</h2>
+                    <p class="text-sm text-slate-300 mb-4">${message}</p>
+                    ${tips.length > 0 ? `
+                    <div class="text-left bg-black/30 p-3 rounded-lg border border-white/5">
+                        <p class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Solusi:</p>
+                        <ul class="text-xs text-slate-400 list-disc pl-4 space-y-1">
+                            ${tipsHtml}
+                        </ul>
+                    </div>` : ''}
+                </div>
+            `;
+            lucide.createIcons();
+        }
 
         // --- GEMINI API SETUP ---
-        // Jika berjalan di Preview Canvas ini: BIARKAN KOSONG (""). Sistem akan otomatis inject key.
-        // Jika di GitHub/Hosting sendiri: Isi dengan API Key dari https://aistudio.google.com/
-        const apiKey = "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs"; 
+        // SAYA SUDAH MEMASUKKAN KUNCI ANDA DI SINI
+        const GEMINI_API_KEY = "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs"; 
 
         async function callGeminiAI(userMessage, conversationHistory = []) {
-            // Check fallback for external hosting without key
-            if (!apiKey && typeof __firebase_config === 'undefined') {
+            let activeKey = GEMINI_API_KEY;
+            
+            // Fallback Logic
+            if (!activeKey && typeof __firebase_config === 'undefined') {
                  return {
                     type: "chat",
-                    text: "⚠️ System Alert: API Key belum dikonfigurasi. Saya berjalan dalam mode offline terbatas. Silakan tambahkan Google Gemini API Key di dalam kode untuk mengaktifkan kecerdasan penuh saya.",
+                    text: "⚠️ CONFIG ERROR: 'GEMINI_API_KEY' kosong. Mohon isi variable ini di kode HTML baris ~125 dengan API Key dari aistudio.google.com.",
                 };
             }
 
-            const historyText = conversationHistory
-                .map(msg => `${msg.role === 'user' ? 'Player' : 'Oracle'}: ${msg.text}`)
-                .join('\n');
-
-            // PERSONA & INSTRUKSI AI YANG LEBIH CERDAS
+            // Membangun prompt sistem
+            const historyText = conversationHistory.map(msg => `${msg.role === 'user' ? 'Player' : 'Oracle'}: ${msg.text}`).join('\n');
+            
             const systemPrompt = `
             Identity: Kamu adalah 'LifeQuest Oracle', AI pendamping perkembangan diri dengan gaya bahasa RPG/Sci-Fi yang seru, suportif, dan sedikit misterius.
             
@@ -169,15 +180,10 @@
             - Buat 3 opsi quest (Easy, Normal, Hard).
             
             FORMAT JSON (Pilih satu yang sesuai):
-            
             { "type": "chat", "text": "Halo Player! Siap menaklukkan hari ini?" }
-            
             ATAU
-            
             { "type": "question", "text": "Belajar apa spesifiknya? (Coding, Bahasa, dll)" }
-            
             ATAU
-            
             {
               "type": "quests",
               "quests": [
@@ -189,9 +195,7 @@
             const fullPrompt = `${systemPrompt}\n\n[Riwayat Percakapan]\n${historyText}\n\nPlayer Input Terbaru: ${userMessage}\n\nOutput JSON Only:`;
 
             try {
-                // Use environment key if available, otherwise manual key
-                const finalKey = apiKey || ""; 
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${finalKey}`;
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${activeKey}`;
                 
                 const response = await fetch(url, {
                     method: 'POST',
@@ -202,6 +206,9 @@
                     })
                 });
 
+                if (response.status === 403 || response.status === 400) {
+                    throw new Error("API Key Ditolak (403/400). Kunci ini mungkin hanya untuk Firebase, bukan untuk Google AI (Gemini). Mohon buat kunci baru di https://aistudio.google.com/");
+                }
                 if (!response.ok) {
                     throw new Error(`API Error: ${response.status} ${response.statusText}`);
                 }
@@ -212,10 +219,9 @@
 
             } catch (error) {
                 console.error("AI Error:", error);
-                // Smart Fallback jika API Error
                 return {
                     type: "chat",
-                    text: `⚠️ Koneksi Neural Terputus (Error: ${error.message}). Coba lagi atau cek koneksi internet.`
+                    text: `⚠️ SYSTEM ERROR: ${error.message}`
                 };
             }
         }
@@ -264,9 +270,9 @@
                 throw new Error('Running externally');
             }
         } catch (e) {
-            // MANUAL CONFIG FALLBACK (Dari user)
+            // KONFIGURASI MANUAL (Ganti nilai di sini dengan milik Anda jika perlu)
             firebaseConfig = {
-                apiKey: "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs", // Firebase API Key (Bukan Gemini API Key)
+                apiKey: "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs",
                 authDomain: "gabriel1-1c7a6.firebaseapp.com",
                 projectId: "gabriel1-1c7a6",
                 storageBucket: "gabriel1-1c7a6.firebasestorage.app",
@@ -281,11 +287,35 @@
         const db = getFirestore(app);
 
         // --- CORE LOGIC ---
-        function initAuth() {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                signInAnonymously(auth);
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth Failed:", error);
+                
+                let tips = ["Cek koneksi internet."];
+                if (error.code === 'auth/operation-not-allowed') {
+                    tips = [
+                        "Masuk ke Firebase Console.",
+                        "Pilih menu 'Authentication' > 'Sign-in method'.",
+                        "Aktifkan provider 'Anonymous'.",
+                        "Simpan perubahan."
+                    ];
+                } else if (error.code === 'auth/api-key-not-valid') {
+                    tips = ["API Key Firebase di kode salah.", "Cek ulang firebaseConfig."];
+                } else if (error.message.includes('network')) {
+                    tips = ["Koneksi internet bermasalah.", "Cek firewall atau proxy."];
+                }
+
+                showFatalError(
+                    "Gagal Masuk (Auth Failed)", 
+                    error.message, 
+                    tips
+                );
             }
         }
 
@@ -309,10 +339,15 @@
                 }
                 updateUI();
                 updateBadges();
+            }, (error) => {
+                showFatalError("Database Error", error.message, [
+                    "Cek Firestore Rules di Console.",
+                    "Pastikan 'read, write' diizinkan untuk 'request.auth != null'."
+                ]);
             });
         }
 
-        // --- RENDER HELPERS ---
+        // --- RENDER HELPERS (Sama seperti sebelumnya) ---
         function renderPolygon() {
             const maxVal = 200;
             const points = Object.keys(INITIAL_STATS).map((key, i) => {
