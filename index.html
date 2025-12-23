@@ -144,6 +144,7 @@
         }
 
         // --- GEMINI API SETUP ---
+        // INI KUNCI AI BARU ANDA (Untuk Chatbot)
         const GEMINI_API_KEY = "AIzaSyCccP54cN3wc80S44-DQDZgT-Ltsp1xKzM"; 
 
         async function callGeminiAI(userMessage, conversationHistory = []) {
@@ -153,7 +154,7 @@
             if (!activeKey && typeof __firebase_config === 'undefined') {
                  return {
                     type: "chat",
-                    text: "⚠️ CONFIG ERROR: 'GEMINI_API_KEY' kosong. Mohon isi variable ini di kode HTML baris ~125.",
+                    text: "⚠️ CONFIG ERROR: 'GEMINI_API_KEY' kosong.",
                 };
             }
 
@@ -167,15 +168,12 @@
             
             SCENARIO 1: OBROLAN BIASA (Chatting/Curhat/Sapaan)
             Jika input user BUKAN aktivitas spesifik (contoh: "Halo", "Siapa kamu?", "Saya sedih", "Motivasi dong"), gunakan tipe "chat".
-            - Responslah dengan ramah, berikan semangat, atau nasihat singkat ala mentor RPG.
             
             SCENARIO 2: AKTIVITAS KURANG JELAS (Ambigu)
             Jika input user aktivitas tapi samar (contoh: "mau belajar", "olahraga", "kerja"), gunakan tipe "question".
-            - Tanya detailnya untuk menentukan tingkat kesulitan nanti.
             
             SCENARIO 3: AKTIVITAS SPESIFIK (Jelas)
             Jika input user aktivitas jelas (contoh: "belajar matematika", "lari 5km", "bikin laporan"), gunakan tipe "quests".
-            - Buat 3 opsi quest (Easy, Normal, Hard).
             
             FORMAT JSON (Pilih satu yang sesuai):
             { "type": "chat", "text": "Halo Player! Siap menaklukkan hari ini?" }
@@ -204,9 +202,6 @@
                     })
                 });
 
-                if (response.status === 403 || response.status === 400) {
-                    throw new Error("API Key Ditolak (403/400). Kunci ini mungkin hanya untuk Firebase, bukan untuk Google AI (Gemini).");
-                }
                 if (!response.ok) {
                     throw new Error(`API Error: ${response.status} ${response.statusText}`);
                 }
@@ -268,9 +263,9 @@
                 throw new Error('Running externally');
             }
         } catch (e) {
-            // KONFIGURASI MANUAL (Ganti nilai di sini dengan milik Anda jika perlu)
+            // KONFIGURASI MANUAL (Menggunakan Kunci Firebase ASLI)
             firebaseConfig = {
-                apiKey: "AIzaSyCccP54cN3wc80S44-DQDZgT-Ltsp1xKzM", // PENTING: Ini Key Anda
+                apiKey: "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs", // KUNCI LAMA (Untuk Database & Auth)
                 authDomain: "gabriel1-1c7a6.firebaseapp.com",
                 projectId: "gabriel1-1c7a6",
                 storageBucket: "gabriel1-1c7a6.firebasestorage.app",
@@ -301,18 +296,21 @@
                         "Masuk ke Firebase Console > Authentication > Sign-in method.",
                         "Aktifkan 'Anonymous'."
                     ];
-                } else if (error.message.includes('identitytoolkit') || error.message.includes('blocked')) {
-                    // Deteksi Error API Blocked/Disabled (Spesifik untuk case Anda)
+                } else if (error.message.includes('configuration-not-found')) {
+                    // Specific handling for configuration-not-found
                     tips = [
-                        "<strong>API Key Anda Dibatasi.</strong>",
+                        "<strong>Config Error:</strong> API Key tidak cocok dengan Project ID.",
+                        "Pastikan 'apiKey' di baris ~250 adalah kunci Firebase asli (AIzaSyAn...), BUKAN kunci Gemini.",
+                        "Cek Firebase Console untuk API Key yang benar."
+                    ];
+                } else if (error.message.includes('identitytoolkit') || error.message.includes('blocked')) {
+                    tips = [
+                        "<strong>API Key Firebase Dibatasi.</strong>",
                         `Buka <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="text-blue-400 underline font-bold">Google Cloud Credentials</a>.`,
-                        "Klik API Key Anda.",
-                        "Di <strong>API restrictions</strong>, pilih 'Don't restrict key' atau pastikan 'Identity Toolkit API' dicentang.",
-                        "Di <strong>Application restrictions</strong>, set 'None' dulu.",
+                        "Klik API Key (AIzaSyAn...).",
+                        "Di API restrictions, pilih 'Don't restrict key' atau centang 'Identity Toolkit API'.",
                         "Save & Refresh."
                     ];
-                } else if (error.code === 'auth/api-key-not-valid') {
-                    tips = ["API Key Firebase salah.", "Cek firebaseConfig."];
                 }
 
                 showFatalError(
