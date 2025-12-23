@@ -119,7 +119,7 @@
         function showFatalError(title, message, tips = []) {
             const el = document.getElementById('loading-screen');
             if(!el) return;
-            const tipsHtml = tips.map(t => `<li>${t}</li>`).join('');
+            const tipsHtml = tips.map(t => `<li class="break-words mb-1">${t}</li>`).join('');
             el.innerHTML = `
                 <div class="bg-slate-900 border border-red-500/50 rounded-2xl p-6 max-w-sm mx-auto shadow-2xl shadow-red-900/20">
                     <div class="flex justify-center mb-4">
@@ -128,9 +128,11 @@
                         </div>
                     </div>
                     <h2 class="text-xl font-bold text-white mb-2">${title}</h2>
-                    <p class="text-sm text-slate-300 mb-4">${message}</p>
+                    <div class="bg-black/30 p-3 rounded border border-red-900/30 mb-4 max-h-32 overflow-y-auto">
+                        <p class="text-xs font-mono text-red-300 break-words">${message}</p>
+                    </div>
                     ${tips.length > 0 ? `
-                    <div class="text-left bg-black/30 p-3 rounded-lg border border-white/5">
+                    <div class="text-left">
                         <p class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Solusi:</p>
                         <ul class="text-xs text-slate-400 list-disc pl-4 space-y-1">
                             ${tipsHtml}
@@ -142,7 +144,6 @@
         }
 
         // --- GEMINI API SETUP ---
-        // SAYA SUDAH MEMASUKKAN KUNCI ANDA DI SINI
         const GEMINI_API_KEY = "AIzaSyCccP54cN3wc80S44-DQDZgT-Ltsp1xKzM"; 
 
         async function callGeminiAI(userMessage, conversationHistory = []) {
@@ -152,18 +153,15 @@
             if (!activeKey && typeof __firebase_config === 'undefined') {
                  return {
                     type: "chat",
-                    text: "⚠️ CONFIG ERROR: 'GEMINI_API_KEY' kosong. Mohon isi variable ini di kode HTML baris ~125 dengan API Key dari aistudio.google.com.",
+                    text: "⚠️ CONFIG ERROR: 'GEMINI_API_KEY' kosong. Mohon isi variable ini di kode HTML baris ~125.",
                 };
             }
 
-            // Membangun prompt sistem
             const historyText = conversationHistory.map(msg => `${msg.role === 'user' ? 'Player' : 'Oracle'}: ${msg.text}`).join('\n');
             
             const systemPrompt = `
             Identity: Kamu adalah 'LifeQuest Oracle', AI pendamping perkembangan diri dengan gaya bahasa RPG/Sci-Fi yang seru, suportif, dan sedikit misterius.
-            
             Mission: Analisis input Player (user).
-            
             OUTPUT RULES (PENTING):
             Kamu harus merespons dalam format JSON saja.
             
@@ -207,7 +205,7 @@
                 });
 
                 if (response.status === 403 || response.status === 400) {
-                    throw new Error("API Key Ditolak (403/400). Kunci ini mungkin hanya untuk Firebase, bukan untuk Google AI (Gemini). Mohon buat kunci baru di https://aistudio.google.com/");
+                    throw new Error("API Key Ditolak (403/400). Kunci ini mungkin hanya untuk Firebase, bukan untuk Google AI (Gemini).");
                 }
                 if (!response.ok) {
                     throw new Error(`API Error: ${response.status} ${response.statusText}`);
@@ -272,7 +270,7 @@
         } catch (e) {
             // KONFIGURASI MANUAL (Ganti nilai di sini dengan milik Anda jika perlu)
             firebaseConfig = {
-                apiKey: "AIzaSyCccP54cN3wc80S44-DQDZgT-Ltsp1xKzM",
+                apiKey: "AIzaSyCccP54cN3wc80S44-DQDZgT-Ltsp1xKzM", // PENTING: Ini Key Anda
                 authDomain: "gabriel1-1c7a6.firebaseapp.com",
                 projectId: "gabriel1-1c7a6",
                 storageBucket: "gabriel1-1c7a6.firebasestorage.app",
@@ -297,18 +295,24 @@
             } catch (error) {
                 console.error("Auth Failed:", error);
                 
-                let tips = ["Cek koneksi internet."];
+                let tips = ["Cek koneksi internet.", "Refresh halaman."];
                 if (error.code === 'auth/operation-not-allowed') {
                     tips = [
-                        "Masuk ke Firebase Console.",
-                        "Pilih menu 'Authentication' > 'Sign-in method'.",
-                        "Aktifkan provider 'Anonymous'.",
-                        "Simpan perubahan."
+                        "Masuk ke Firebase Console > Authentication > Sign-in method.",
+                        "Aktifkan 'Anonymous'."
+                    ];
+                } else if (error.message.includes('identitytoolkit') || error.message.includes('blocked')) {
+                    // Deteksi Error API Blocked/Disabled (Spesifik untuk case Anda)
+                    tips = [
+                        "<strong>API Key Anda Dibatasi.</strong>",
+                        `Buka <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="text-blue-400 underline font-bold">Google Cloud Credentials</a>.`,
+                        "Klik API Key Anda.",
+                        "Di <strong>API restrictions</strong>, pilih 'Don't restrict key' atau pastikan 'Identity Toolkit API' dicentang.",
+                        "Di <strong>Application restrictions</strong>, set 'None' dulu.",
+                        "Save & Refresh."
                     ];
                 } else if (error.code === 'auth/api-key-not-valid') {
-                    tips = ["API Key Firebase di kode salah.", "Cek ulang firebaseConfig."];
-                } else if (error.message.includes('network')) {
-                    tips = ["Koneksi internet bermasalah.", "Cek firewall atau proxy."];
+                    tips = ["API Key Firebase salah.", "Cek firebaseConfig."];
                 }
 
                 showFatalError(
@@ -347,7 +351,7 @@
             });
         }
 
-        // --- RENDER HELPERS (Sama seperti sebelumnya) ---
+        // --- RENDER HELPERS ---
         function renderPolygon() {
             const maxVal = 200;
             const points = Object.keys(INITIAL_STATS).map((key, i) => {
