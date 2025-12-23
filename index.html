@@ -71,7 +71,7 @@
                 </span>
                 <span class="text-[10px] font-mono font-bold text-emerald-400">ONLINE</span>
             </div>
-            <div class="text-xs font-mono text-slate-500">v2.2</div>
+            <div class="text-xs font-mono text-slate-500">v2.3 (Debug)</div>
         </div>
     </header>
 
@@ -81,6 +81,7 @@
         <div id="loading-screen" class="flex flex-col items-center justify-center h-full space-y-4">
             <i data-lucide="loader-2" class="w-12 h-12 text-emerald-500 animate-spin"></i>
             <p class="font-mono text-emerald-500 animate-pulse">CONNECTING TO NEURAL NET...</p>
+            <p class="text-xs text-slate-600 font-mono" id="loading-status">Initializing protocols...</p>
         </div>
     </main>
 
@@ -105,25 +106,38 @@
 
     <!-- JAVASCRIPT LOGIC -->
     <script type="module">
+        // Menggunakan versi yang stabil dan kompatibel dengan CDN
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        // --- GLOBAL ERROR HANDLER ---
+        window.onerror = function(msg, url, line) {
+            const el = document.getElementById('loading-screen');
+            if(el) {
+                el.innerHTML = `
+                    <div class="text-red-400 text-center p-6 max-w-sm mx-auto">
+                        <i data-lucide="alert-octagon" class="w-12 h-12 mx-auto mb-4 text-red-500"></i>
+                        <h3 class="font-bold text-lg mb-2">System Critical Error</h3>
+                        <p class="text-xs font-mono bg-black/50 p-2 rounded text-left mb-4 break-words">${msg}</p>
+                        <p class="text-xs text-slate-500">Line: ${line}</p>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+        };
+
         // --- GEMINI API SETUP ---
-        // Jika kamu ingin AI-nya pintar di GitHub/Hosting sendiri, kamu WAJIB memasukkan API Key Gemini di sini.
-        // Jika dibiarkan kosong, AI akan fallback ke mode offline jika env config tidak ditemukan.
         const apiKey = ""; 
 
         async function callGeminiAI(userMessage, conversationHistory = []) {
-            // Check if API Key is missing for GitHub deployment
             if (!apiKey && typeof __firebase_config === 'undefined') {
-                 // Fallback response telling user to add key for intelligence
                  return {
                     type: "quests",
                     quests: [
-                        { diff: 'Easy', title: 'AI Offline', desc: 'Tambahkan Google Gemini API Key di kode agar AI menjadi pintar.', rewards: { discipline: 1 } },
-                        { diff: 'Normal', title: 'Mode Manual', desc: 'Karena API Key kosong, saya hanya merespons default.', rewards: { intellect: 1 } },
-                        { diff: 'Hard', title: 'Config Setup', desc: 'Edit file HTML dan isi variabel "apiKey" di baris 110.', rewards: { potential: 5 } }
+                        { diff: 'Easy', title: 'AI Offline', desc: 'Tambahkan Google Gemini API Key di kode.', rewards: { discipline: 1 } },
+                        { diff: 'Normal', title: 'Mode Manual', desc: 'Running in fallback mode.', rewards: { intellect: 1 } },
+                        { diff: 'Hard', title: 'Config Setup', desc: 'Setup API Key required.', rewards: { potential: 5 } }
                     ]
                 };
             }
@@ -133,62 +147,48 @@
                 .join('\n');
 
             const systemPrompt = `
-            Anda adalah 'Game Master' untuk aplikasi gamifikasi hidup bernama LifeQuest. 
+            Anda adalah 'Game Master' untuk LifeQuest. 
             Tugas: Analisis input user dan ubah aktivitas nyata menjadi Quest RPG.
             
             Aturan Output:
-            1. Jika input user VAGUE (tidak jelas, contoh: "mau belajar", "olahraga", "kerja"), output JSON tipe 'question' untuk menanya detail.
-            2. Jika input user SPECIFIC (jelas, contoh: "belajar react js", "lari 5km", "nulis laporan"), output JSON tipe 'quests' berisi 3 opsi (Easy, Normal, Hard).
-            3. Berikan reward stat yang LOGIS berdasarkan aktivitas.
-               Stats: intellect (logika/belajar), potential (bakat/skill baru), focus (konsentrasi), discipline (rutinitas), confidence (sosial/keberanian), resilience (fisik/mental).
-            4. Gunakan Bahasa Indonesia yang seru dan bergaya RPG sci-fi.
+            1. Jika input user VAGUE, output JSON tipe 'question'.
+            2. Jika input user SPECIFIC, output JSON tipe 'quests' (Easy, Normal, Hard).
+            3. Berikan reward stat yang LOGIS.
             
             Format JSON Wajib:
             {
               "type": "question" | "quests",
-              "text": "Pertanyaan klarifikasi jika type question",
-              "quests": [ // Hanya jika type quests, array 3 item
-                {
-                  "diff": "Easy" | "Normal" | "Hard",
-                  "title": "Judul Quest Pendek Keren",
-                  "desc": "Deskripsi aktivitas spesifik",
-                  "rewards": { "intellect": 2, "focus": 1 } // Pilih 1-3 stat relevan
-                }
-              ]
+              "text": "Pertanyaan klarifikasi",
+              "quests": [{ "diff": "Easy", "title": "...", "desc": "...", "rewards": {...} }]
             }
             `;
 
             const fullPrompt = `${systemPrompt}\n\nRiwayat Chat:\n${historyText}\n\nUser Input Terbaru: ${userMessage}\n\nOutput JSON only:`;
 
             try {
-                // Use environment key if available, otherwise manual key
                 const finalKey = apiKey || ""; 
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${finalKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         contents: [{ parts: [{ text: fullPrompt }] }],
-                        generationConfig: {
-                            responseMimeType: "application/json"
-                        }
+                        generationConfig: { responseMimeType: "application/json" }
                     })
                 });
 
                 if (!response.ok) throw new Error('API Error');
-                
                 const data = await response.json();
                 const textResult = data.candidates[0].content.parts[0].text;
                 return JSON.parse(textResult);
 
             } catch (error) {
                 console.error("AI Error:", error);
-                // Fallback jika offline/error
                 return {
                     type: "quests",
                     quests: [
-                        { diff: 'Easy', title: 'Manual Override', desc: 'Sistem offline. Lakukan aktivitas ini 5 menit.', rewards: { discipline: 1 } },
-                        { diff: 'Normal', title: 'System Reboot', desc: 'Sistem offline. Lakukan aktivitas ini 30 menit.', rewards: { discipline: 3, resilience: 2 } },
-                        { diff: 'Hard', title: 'Offline Grind', desc: 'Sistem offline. Lakukan aktivitas ini sampai selesai.', rewards: { discipline: 5, resilience: 4 } }
+                        { diff: 'Easy', title: 'Connection Lost', desc: 'Sistem offline. Lakukan 5 menit.', rewards: { discipline: 1 } },
+                        { diff: 'Normal', title: 'Offline Mode', desc: 'Sistem offline. Lakukan 30 menit.', rewards: { discipline: 3 } },
+                        { diff: 'Hard', title: 'Manual Grind', desc: 'Selesaikan tugas manual.', rewards: { resilience: 4 } }
                     ]
                 };
             }
@@ -235,8 +235,6 @@
         let firebaseConfig;
         let appId = 'lifequest-default';
 
-        // === KONFIGURASI FIREBASE ===
-        // 1. Coba baca config dari environment (untuk preview di sini)
         try {
             if (typeof __firebase_config !== 'undefined') {
                 firebaseConfig = JSON.parse(__firebase_config);
@@ -245,8 +243,7 @@
                 throw new Error('Running externally');
             }
         } catch (e) {
-            // 2. JIKA ERROR (artinya berjalan di GitHub/Hosting), gunakan config manual ini:
-            // SAYA SUDAH MEMASUKKAN CONFIG MILIKMU DI SINI:
+            // CONFIG MANUAL DARI USER
             firebaseConfig = {
                 apiKey: "AIzaSyAnxjcJOCqmC6T6kcRgKuYUC1iTkVLBdKs",
                 authDomain: "gabriel1-1c7a6.firebaseapp.com",
@@ -262,20 +259,55 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
+        // --- ERROR UI HELPER ---
+        function showError(title, msg) {
+            const el = document.getElementById('loading-screen');
+            if (el) {
+                el.innerHTML = `
+                    <div class="text-red-400 text-center p-6 max-w-sm bg-slate-900 rounded-xl border border-red-900/50 mx-auto mt-10">
+                        <i data-lucide="alert-triangle" class="w-10 h-10 mx-auto mb-3 text-red-500"></i>
+                        <h3 class="font-bold text-lg mb-2 text-red-500">${title}</h3>
+                        <div class="bg-black/40 p-3 rounded text-left mb-4 overflow-x-auto">
+                             <p class="text-xs font-mono text-slate-300 break-words">${msg}</p>
+                        </div>
+                        <div class="text-xs text-slate-500 text-left space-y-2 border-t border-slate-800 pt-3">
+                            <p><strong>Kemungkinan Solusi:</strong></p>
+                            <ul class="list-disc pl-4 space-y-1">
+                                <li>Aktifkan <strong>Anonymous Auth</strong> di Firebase Console > Build > Authentication > Sign-in method.</li>
+                                <li>Cek <strong>Firestore Rules</strong> di Firebase Console. Pastikan tidak memblokir akses.</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
+                lucide.createIcons();
+            }
+        }
+
+        function updateLoadingStatus(msg) {
+            const el = document.getElementById('loading-status');
+            if(el) el.innerText = msg;
+        }
+
         // --- APP LOGIC ---
 
-        function initAuth() {
-            // Prioritize custom token from environment if available
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                signInAnonymously(auth);
+        async function initAuth() {
+            try {
+                updateLoadingStatus("Authenticating...");
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth Error:", error);
+                showError("Authentication Failed", error.message);
             }
         }
 
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 state.user = user;
+                updateLoadingStatus("Fetching User Data...");
                 setupRealtimeListener(user.uid);
             }
         });
@@ -299,11 +331,14 @@
                 }
                 updateUI();
                 updateBadges();
-            }, (err) => console.error("Firestore Error:", err));
+            }, (err) => {
+                console.error("Firestore Error:", err);
+                showError("Database Access Denied", err.message + " (Cek Firestore Rules)");
+            });
         }
 
         // --- ACTIONS ---
-
+        // (Sama seperti sebelumnya, tidak diubah)
         window.handleSendMessage = async (e) => {
             e.preventDefault();
             const inputEl = document.getElementById('chat-input');
@@ -312,46 +347,34 @@
             
             inputEl.value = '';
             state.proposedQuests = [];
-            
-            // User Message
             state.messages.push({ role: 'user', text: val });
             state.isTyping = true;
             updateUI();
             
-            // Scroll to bottom
             setTimeout(() => {
                 const chatContainer = document.getElementById('chat-container');
                 if(chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
             }, 10);
 
-            // CALL ONLINE AI
             try {
-                // We send the last few messages for context
                 const contextHistory = state.messages.slice(-5); 
                 const aiResponse = await callGeminiAI(val, contextHistory);
 
                 state.isTyping = false;
-
                 if (aiResponse.type === 'question') {
-                    // AI asks clarification
                     state.messages.push({ role: 'ai', text: aiResponse.text || "Mohon detail lebih lanjut." });
                 } else if (aiResponse.type === 'quests') {
-                    // AI generates quests
                     state.proposedQuests = aiResponse.quests;
                     state.messages.push({ role: 'ai', text: 'Analisis kalkulasi selesai. Opsi Quest dihasilkan:' });
                 } else {
                     state.messages.push({ role: 'ai', text: 'Maaf, terjadi kesalahan analisis data.' });
                 }
-
             } catch (err) {
                 console.error(err);
                 state.isTyping = false;
                 state.messages.push({ role: 'ai', text: 'Koneksi Neural Net terputus. Coba lagi.' });
             }
-            
             updateUI();
-            
-            // Scroll again
             const chatContainer = document.getElementById('chat-container');
             if(chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
         };
@@ -359,22 +382,13 @@
         window.acceptQuest = async (index) => {
             if (!state.user) return;
             const questData = state.proposedQuests[index];
-            const newQuest = {
-                ...questData,
-                id: Date.now().toString(),
-                status: 'active',
-                startedAt: new Date().toISOString()
-            };
-
-            // UI Update Immediate
+            const newQuest = { ...questData, id: Date.now().toString(), status: 'active', startedAt: new Date().toISOString() };
             state.activeQuests.push(newQuest);
             state.proposedQuests = [];
             state.messages.push({ role: 'system', text: `Quest "${questData.title}" diterima. Cek tab Active Quests.` });
             state.view = 'quests';
             updateUI();
             updateBadges();
-
-            // Firebase Update
             const userRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'profile', 'data');
             await updateDoc(userRef, { activeQuests: arrayUnion(newQuest) });
         };
@@ -383,52 +397,35 @@
             if (!state.user) return;
             const quest = state.activeQuests.find(q => q.id === questId);
             if (!quest) return;
-
             const updatedStats = { ...state.stats };
-            Object.entries(quest.rewards).forEach(([key, val]) => {
-                updatedStats[key] = (updatedStats[key] || 0) + val;
-            });
-
+            Object.entries(quest.rewards).forEach(([key, val]) => { updatedStats[key] = (updatedStats[key] || 0) + val; });
             const completedQuest = { ...quest, status: 'completed', completedAt: new Date().toISOString() };
-            
-            // Optimistic UI
             state.stats = updatedStats;
             state.activeQuests = state.activeQuests.filter(q => q.id !== questId);
             state.history.unshift(completedQuest);
             updateUI();
             updateBadges();
-
-            // Firebase
             const userRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'profile', 'data');
-            await updateDoc(userRef, {
-                activeQuests: arrayRemove(quest),
-                history: arrayUnion(completedQuest),
-                stats: updatedStats
-            });
+            await updateDoc(userRef, { activeQuests: arrayRemove(quest), history: arrayUnion(completedQuest), stats: updatedStats });
         };
 
         window.abandonQuest = async (questId) => {
             if (!state.user) return;
             const quest = state.activeQuests.find(q => q.id === questId);
             if (!quest) return;
-
             state.activeQuests = state.activeQuests.filter(q => q.id !== questId);
             updateUI();
             updateBadges();
-
             const userRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'profile', 'data');
             await updateDoc(userRef, { activeQuests: arrayRemove(quest) });
         };
 
-        window.router = (viewName) => {
-            state.view = viewName;
-            updateUI();
-        };
+        window.router = (viewName) => { state.view = viewName; updateUI(); };
 
         // --- RENDER FUNCTIONS ---
+        // (Sama seperti sebelumnya)
 
         function updateBadges() {
-            // Quest Badge
             const badge = document.getElementById('quest-badge');
             if (state.activeQuests.length > 0) {
                 badge.innerText = state.activeQuests.length;
@@ -436,16 +433,12 @@
             } else {
                 badge.classList.add('hidden');
             }
-            
-            // Chat Notification (only if no active quests and not in chat view)
             const notif = document.getElementById('chat-notification');
             if(state.activeQuests.length === 0 && state.view !== 'chat') {
                 notif.classList.remove('hidden');
             } else {
                 notif.classList.add('hidden');
             }
-
-            // Active Nav State
             ['dashboard', 'chat', 'quests'].forEach(v => {
                 const btn = document.getElementById(`nav-${v}`);
                 if(state.view === v) {
@@ -467,21 +460,7 @@
                 const y = 50 + (val / maxVal) * 50 * Math.sin(angle - Math.PI / 2);
                 return `${x},${y}`;
             }).join(' ');
-
-            return `
-            <div class="relative w-48 h-48 mx-auto mb-6">
-                <svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-[0_0_10px_rgba(56,189,248,0.3)]">
-                    <polygon points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25" fill="#1e293b" stroke="#334155" stroke-width="0.5" />
-                    <polygon points="50,25 71.6,37.5 71.6,62.5 50,75 28.3,62.5 28.3,37.5" fill="none" stroke="#334155" stroke-width="0.5" />
-                    <polygon points="${points}" fill="rgba(56, 189, 248, 0.4)" stroke="#38bdf8" stroke-width="2" />
-                </svg>
-                <div class="radar-label top-0 left-1/2 -translate-y-4 text-blue-400">INT</div>
-                <div class="radar-label top-[25%] right-0 translate-x-2 text-yellow-400">POT</div>
-                <div class="radar-label bottom-[25%] right-0 translate-x-2 text-emerald-400">FOC</div>
-                <div class="radar-label bottom-0 left-1/2 translate-y-4 text-gray-400">DIS</div>
-                <div class="radar-label bottom-[25%] left-0 -translate-x-4 text-orange-400">CNF</div>
-                <div class="radar-label top-[25%] left-0 -translate-x-4 text-red-400">RES</div>
-            </div>`;
+            return `<div class="relative w-48 h-48 mx-auto mb-6"><svg viewBox="0 0 100 100" class="w-full h-full drop-shadow-[0_0_10px_rgba(56,189,248,0.3)]"><polygon points="50,0 93.3,25 93.3,75 50,100 6.7,75 6.7,25" fill="#1e293b" stroke="#334155" stroke-width="0.5" /><polygon points="50,25 71.6,37.5 71.6,62.5 50,75 28.3,62.5 28.3,37.5" fill="none" stroke="#334155" stroke-width="0.5" /><polygon points="${points}" fill="rgba(56, 189, 248, 0.4)" stroke="#38bdf8" stroke-width="2" /></svg><div class="radar-label top-0 left-1/2 -translate-y-4 text-blue-400">INT</div><div class="radar-label top-[25%] right-0 translate-x-2 text-yellow-400">POT</div><div class="radar-label bottom-[25%] right-0 translate-x-2 text-emerald-400">FOC</div><div class="radar-label bottom-0 left-1/2 translate-y-4 text-gray-400">DIS</div><div class="radar-label bottom-[25%] left-0 -translate-x-4 text-orange-400">CNF</div><div class="radar-label top-[25%] left-0 -translate-x-4 text-red-400">RES</div></div>`;
         }
 
         function renderStatRows() {
@@ -489,37 +468,12 @@
                 const def = STAT_DEFINITIONS[key];
                 const val = state.stats[key];
                 const tier = [...TIERS].reverse().find(t => val >= t.min) || TIERS[0];
-                return `
-                <div class="flex items-center justify-between bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 mb-2">
-                    <div class="flex items-center gap-3">
-                        <div class="p-2 rounded bg-slate-900 ${def.color}">
-                            <i data-lucide="${def.icon}" class="w-4 h-4"></i>
-                        </div>
-                        <div>
-                            <div class="text-xs text-slate-400 uppercase tracking-wider">${def.label}</div>
-                            <div class="text-sm text-slate-300">${def.desc}</div>
-                        </div>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-xl font-bold ${def.color}">${val}</div>
-                        <div class="text-xs ${tier.color} font-bold">Rank ${tier.label}</div>
-                    </div>
-                </div>`;
+                return `<div class="flex items-center justify-between bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 mb-2"><div class="flex items-center gap-3"><div class="p-2 rounded bg-slate-900 ${def.color}"><i data-lucide="${def.icon}" class="w-4 h-4"></i></div><div><div class="text-xs text-slate-400 uppercase tracking-wider">${def.label}</div><div class="text-sm text-slate-300">${def.desc}</div></div></div><div class="text-right"><div class="text-xl font-bold ${def.color}">${val}</div><div class="text-xs ${tier.color} font-bold">Rank ${tier.label}</div></div></div>`;
             }).join('');
         }
 
         function renderDashboard() {
-            return `
-            <div class="animate-fade-in pb-4">
-                <div class="text-center space-y-2 mb-6">
-                    <h2 class="text-2xl font-black text-white tracking-widest uppercase glow-text">Status Player</h2>
-                    <p class="text-slate-400 text-sm">Refleksi perkembangan diri saat ini</p>
-                </div>
-                ${renderPolygon()}
-                <div class="grid gap-2">
-                    ${renderStatRows()}
-                </div>
-            </div>`;
+            return `<div class="animate-fade-in pb-4"><div class="text-center space-y-2 mb-6"><h2 class="text-2xl font-black text-white tracking-widest uppercase glow-text">Status Player</h2><p class="text-slate-400 text-sm">Refleksi perkembangan diri saat ini</p></div>${renderPolygon()}<div class="grid gap-2">${renderStatRows()}</div></div>`;
         }
 
         function renderChat() {
@@ -528,109 +482,22 @@
                 if (msg.role === 'user') styles = 'bg-blue-600 text-white rounded-br-none ml-auto';
                 else if (msg.role === 'system') styles = 'bg-slate-800 text-yellow-400 border border-yellow-500/30 text-xs font-mono text-center w-full';
                 else styles = 'bg-slate-800 text-slate-200 border border-slate-700 rounded-bl-none mr-auto';
-                
-                return `
-                <div class="flex mb-4 w-full">
-                    <div class="max-w-[85%] p-3 rounded-xl text-sm ${styles}">
-                        ${msg.text}
-                    </div>
-                </div>`;
+                return `<div class="flex mb-4 w-full"><div class="max-w-[85%] p-3 rounded-xl text-sm ${styles}">${msg.text}</div></div>`;
             }).join('');
 
-            const typingHtml = state.isTyping ? `
-                <div class="flex justify-start mb-4">
-                    <div class="bg-slate-800 p-3 rounded-xl rounded-bl-none border border-slate-700 flex gap-2 items-center">
-                        <span class="w-2 h-2 bg-emerald-500 rounded-full animate-bounce-dot" style="animation-delay: 0ms"></span>
-                        <span class="w-2 h-2 bg-emerald-500 rounded-full animate-bounce-dot" style="animation-delay: 150ms"></span>
-                        <span class="w-2 h-2 bg-emerald-500 rounded-full animate-bounce-dot" style="animation-delay: 300ms"></span>
-                    </div>
-                </div>` : '';
+            const typingHtml = state.isTyping ? `<div class="flex justify-start mb-4"><div class="bg-slate-800 p-3 rounded-xl rounded-bl-none border border-slate-700 flex gap-2 items-center"><span class="w-2 h-2 bg-emerald-500 rounded-full animate-bounce-dot" style="animation-delay: 0ms"></span><span class="w-2 h-2 bg-emerald-500 rounded-full animate-bounce-dot" style="animation-delay: 150ms"></span><span class="w-2 h-2 bg-emerald-500 rounded-full animate-bounce-dot" style="animation-delay: 300ms"></span></div></div>` : '';
 
-            const proposalsHtml = state.proposedQuests.length > 0 ? `
-                <div class="space-y-3 mt-4 animate-fade-in">
-                    <p class="text-xs text-slate-500 uppercase font-bold text-center">Select Difficulty</p>
-                    ${state.proposedQuests.map((q, i) => {
-                        const diffColor = q.diff === 'Easy' ? 'text-green-400 bg-green-900' : q.diff === 'Normal' ? 'text-blue-400 bg-blue-900' : 'text-red-400 bg-red-900';
-                        return `
-                        <div class="bg-slate-900 border border-slate-700 p-4 rounded-lg hover:border-emerald-500 transition-colors relative overflow-hidden">
-                            <div class="absolute top-0 right-0 px-2 py-1 text-[10px] font-bold uppercase ${diffColor}">
-                                ${q.diff}
-                            </div>
-                            <h4 class="font-bold text-slate-200 mb-1">${q.title}</h4>
-                            <p class="text-sm text-slate-400 mb-3">${q.desc}</p>
-                            <div class="flex flex-wrap gap-2 mb-4">
-                                ${Object.entries(q.rewards).map(([k, v]) => `<span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-slate-700">+${v} ${STAT_DEFINITIONS[k].label}</span>`).join('')}
-                            </div>
-                            <button onclick="acceptQuest(${i})" class="w-full py-2 bg-slate-800 hover:bg-emerald-600 hover:text-white text-emerald-500 border border-emerald-500/30 rounded font-bold text-sm transition-all flex items-center justify-center gap-2">
-                                <i data-lucide="check-circle" class="w-4 h-4"></i> Terima Quest
-                            </button>
-                        </div>`
-                    }).join('')}
-                </div>` : '';
+            const proposalsHtml = state.proposedQuests.length > 0 ? `<div class="space-y-3 mt-4 animate-fade-in"><p class="text-xs text-slate-500 uppercase font-bold text-center">Select Difficulty</p>${state.proposedQuests.map((q, i) => { const diffColor = q.diff === 'Easy' ? 'text-green-400 bg-green-900' : q.diff === 'Normal' ? 'text-blue-400 bg-blue-900' : 'text-red-400 bg-red-900'; return `<div class="bg-slate-900 border border-slate-700 p-4 rounded-lg hover:border-emerald-500 transition-colors relative overflow-hidden"><div class="absolute top-0 right-0 px-2 py-1 text-[10px] font-bold uppercase ${diffColor}">${q.diff}</div><h4 class="font-bold text-slate-200 mb-1">${q.title}</h4><p class="text-sm text-slate-400 mb-3">${q.desc}</p><div class="flex flex-wrap gap-2 mb-4">${Object.entries(q.rewards).map(([k, v]) => `<span class="text-[10px] bg-slate-800 px-2 py-1 rounded text-slate-300 border border-slate-700">+${v} ${STAT_DEFINITIONS[k].label}</span>`).join('')}</div><button onclick="acceptQuest(${i})" class="w-full py-2 bg-slate-800 hover:bg-emerald-600 hover:text-white text-emerald-500 border border-emerald-500/30 rounded font-bold text-sm transition-all flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Terima Quest</button></div>` }).join('')}</div>` : '';
 
-            return `
-            <div class="flex flex-col h-[calc(100vh-160px)]">
-                <div id="chat-container" class="flex-1 overflow-y-auto p-2">
-                    ${messagesHtml}
-                    ${typingHtml}
-                    ${proposalsHtml}
-                </div>
-                <form onsubmit="handleSendMessage(event)" class="mt-2 flex gap-2 border-t border-slate-800 pt-3 shrink-0">
-                    <input id="chat-input" type="text" placeholder="Ketik aktivitasmu (misal: Belajar, Gym)..." 
-                        class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500" 
-                        ${state.proposedQuests.length > 0 ? 'disabled' : ''} autocomplete="off">
-                    <button type="submit" ${state.proposedQuests.length > 0 ? 'disabled' : ''} 
-                        class="bg-emerald-600 text-white p-3 rounded-lg disabled:opacity-50 hover:bg-emerald-500 transition-colors">
-                        <i data-lucide="play" class="w-5 h-5 fill-current"></i>
-                    </button>
-                </form>
-            </div>`;
+            return `<div class="flex flex-col h-[calc(100vh-160px)]"><div id="chat-container" class="flex-1 overflow-y-auto p-2">${messagesHtml}${typingHtml}${proposalsHtml}</div><form onsubmit="handleSendMessage(event)" class="mt-2 flex gap-2 border-t border-slate-800 pt-3 shrink-0"><input id="chat-input" type="text" placeholder="Ketik aktivitasmu (misal: Belajar, Gym)..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500" ${state.proposedQuests.length > 0 ? 'disabled' : ''} autocomplete="off"><button type="submit" ${state.proposedQuests.length > 0 ? 'disabled' : ''} class="bg-emerald-600 text-white p-3 rounded-lg disabled:opacity-50 hover:bg-emerald-500 transition-colors"><i data-lucide="play" class="w-5 h-5 fill-current"></i></button></form></div>`;
         }
 
         function renderQuests() {
             if (state.activeQuests.length === 0) {
-                return `
-                <div class="space-y-4">
-                    <h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                        <i data-lucide="activity" class="text-emerald-500"></i> Active Quests
-                    </h2>
-                    <div class="text-center py-10 bg-slate-900 rounded-lg border border-slate-800 border-dashed">
-                        <p class="text-slate-500">Tidak ada quest aktif.</p>
-                        <button onclick="router('chat')" class="mt-4 text-emerald-400 text-sm hover:underline">
-                            Minta quest ke AI &rarr;
-                        </button>
-                    </div>
-                </div>`;
+                return `<div class="space-y-4"><h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2"><i data-lucide="activity" class="text-emerald-500"></i> Active Quests</h2><div class="text-center py-10 bg-slate-900 rounded-lg border border-slate-800 border-dashed"><p class="text-slate-500">Tidak ada quest aktif.</p><button onclick="router('chat')" class="mt-4 text-emerald-400 text-sm hover:underline">Minta quest ke AI &rarr;</button></div></div>`;
             }
 
-            return `
-            <div class="space-y-4 pb-20">
-                <h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                    <i data-lucide="activity" class="text-emerald-500"></i> Active Quests
-                </h2>
-                ${state.activeQuests.map(q => {
-                    const diffColor = q.diff === 'Easy' ? 'text-green-400 bg-green-900' : q.diff === 'Normal' ? 'text-blue-400 bg-blue-900' : 'text-red-400 bg-red-900';
-                    return `
-                    <div class="bg-slate-800 border-l-4 border-emerald-500 p-4 rounded-r-lg shadow-lg animate-fade-in">
-                        <div class="flex justify-between items-start mb-2">
-                            <h3 class="font-bold text-white">${q.title}</h3>
-                            <span class="text-[10px] px-2 py-0.5 rounded font-bold uppercase ${diffColor}">${q.diff}</span>
-                        </div>
-                        <p class="text-sm text-slate-400 mb-4">${q.desc}</p>
-                        <div class="flex gap-2 mb-4">
-                            ${Object.entries(q.rewards).map(([k, v]) => `<span class="text-[10px] text-emerald-400 font-mono">+${v} ${STAT_DEFINITIONS[k].label}</span>`).join('')}
-                        </div>
-                        <div class="flex gap-2">
-                            <button onclick="completeQuest('${q.id}')" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded text-sm font-bold flex items-center justify-center gap-2">
-                                <i data-lucide="check-circle" class="w-4 h-4"></i> Complete
-                            </button>
-                            <button onclick="abandonQuest('${q.id}')" class="px-3 bg-slate-700 hover:bg-red-900/50 hover:text-red-400 text-slate-400 rounded transition-colors">
-                                <i data-lucide="alert-circle" class="w-4 h-4"></i>
-                            </button>
-                        </div>
-                    </div>`
-                }).join('')}
-            </div>`;
+            return `<div class="space-y-4 pb-20"><h2 class="text-xl font-bold text-white mb-4 flex items-center gap-2"><i data-lucide="activity" class="text-emerald-500"></i> Active Quests</h2>${state.activeQuests.map(q => { const diffColor = q.diff === 'Easy' ? 'text-green-400 bg-green-900' : q.diff === 'Normal' ? 'text-blue-400 bg-blue-900' : 'text-red-400 bg-red-900'; return `<div class="bg-slate-800 border-l-4 border-emerald-500 p-4 rounded-r-lg shadow-lg animate-fade-in"><div class="flex justify-between items-start mb-2"><h3 class="font-bold text-white">${q.title}</h3><span class="text-[10px] px-2 py-0.5 rounded font-bold uppercase ${diffColor}">${q.diff}</span></div><p class="text-sm text-slate-400 mb-4">${q.desc}</p><div class="flex gap-2 mb-4">${Object.entries(q.rewards).map(([k, v]) => `<span class="text-[10px] text-emerald-400 font-mono">+${v} ${STAT_DEFINITIONS[k].label}</span>`).join('')}</div><div class="flex gap-2"><button onclick="completeQuest('${q.id}')" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded text-sm font-bold flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i> Complete</button><button onclick="abandonQuest('${q.id}')" class="px-3 bg-slate-700 hover:bg-red-900/50 hover:text-red-400 text-slate-400 rounded transition-colors"><i data-lucide="alert-circle" class="w-4 h-4"></i></button></div></div>` }).join('')}</div>`;
         }
 
         function updateUI() {
@@ -638,11 +505,7 @@
             if(state.view === 'dashboard') container.innerHTML = renderDashboard();
             else if(state.view === 'chat') container.innerHTML = renderChat();
             else if(state.view === 'quests') container.innerHTML = renderQuests();
-
-            // Refresh Icons
             lucide.createIcons();
-            
-            // Re-attach focus if in chat
             if(state.view === 'chat' && !state.isTyping && state.proposedQuests.length === 0) {
                  const input = document.getElementById('chat-input');
                  if(input) input.focus();
